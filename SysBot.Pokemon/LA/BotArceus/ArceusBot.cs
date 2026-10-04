@@ -262,7 +262,7 @@ public sealed class ArceusBot : PokeRoutineExecutor8LA, IEncounterBot
 
     private async Task DistortionReader(PokedexSaveData dex, CancellationToken token)
     {
-        List<PA8> matchlist = [];
+        List<(PA8 match, (string, string, string) coords)> matchlist = [];
         List<string> loglist = [];
         Log($"Starting Distortion Scanner for {Settings.DistortionConditions.DistortionLocation}...");
         int tries = 1;
@@ -278,6 +278,19 @@ public sealed class ArceusBot : PokeRoutineExecutor8LA, IEncounterBot
         while (!token.IsCancellationRequested)
         {
             Log($"Scan #{tries}...");
+            {
+                long[] warmupOfs = Settings.DistortionConditions.DistortionLocation switch
+                {
+                    ArceusMap.ObsidianFieldlands => [0x42CC4D8, 0xC0, 0x1C0, 0x990 + 0 * 0x8, 0x18, 0x430, 0xC0],
+                    ArceusMap.CrimsonMirelands => [0x42CC4D8, 0xC0, 0x1C0, 0xC78 + 0 * 0x8, 0x18, 0x430, 0xC0],
+                    ArceusMap.CobaltCoastlands => [0x42CC4D8, 0xC0, 0x1C0, 0xCC0 + 0 * 0x8, 0x18, 0x430, 0xC0],
+                    ArceusMap.CoronetHighlands => [0x42CC4D8, 0xC0, 0x1C0, 0x818 + 0 * 0x8, 0x18, 0x430, 0xC0],
+                    ArceusMap.AlabasterIcelands => [0x42CC4D8, 0xC0, 0x1C0, 0x948 + 0 * 0x8, 0x18, 0x430, 0xC0],
+                    _ => throw new NotImplementedException("Invalid distortion location."),
+                };
+                var warmupSpawnerOff = await SwitchConnection.PointerAll(warmupOfs, token).ConfigureAwait(false);
+                _ = await SwitchConnection.ReadBytesAbsoluteAsync(warmupSpawnerOff, 8, token).ConfigureAwait(false);
+            }
             for (int i = 0; i < count; i++)
             {
                 int encounter_slot_sum;
@@ -319,7 +332,7 @@ public sealed class ArceusBot : PokeRoutineExecutor8LA, IEncounterBot
                                 break;
                             }
                         }
-                        matchlist.Add(match);
+                        matchlist.Add((match, FillDistortionCoords(i)));
 
                         if (Settings.DistortionConditions.AnyAlpha && match.IsAlpha)
                         {
@@ -353,7 +366,7 @@ public sealed class ArceusBot : PokeRoutineExecutor8LA, IEncounterBot
                         }
                     }
                 }
-                foreach (PA8 match in matchlist)
+                foreach (var (match, coords) in matchlist)
                 {
                     if (match.IsShiny)
                     {
@@ -378,7 +391,7 @@ public sealed class ArceusBot : PokeRoutineExecutor8LA, IEncounterBot
                         Settings.AddCompletedShinyAlphaFound();
 
                         if (Settings.DistortionConditions.TeleportToDistortionLocation)
-                            await TeleportToDistortionZone(token).ConfigureAwait(false);
+                            await TeleportToDistortionZone(token, coords).ConfigureAwait(false);
 
                         await Click(HOME, 1_000, token).ConfigureAwait(false);
                         IsWaiting = true;
@@ -1256,12 +1269,17 @@ public sealed class ArceusBot : PokeRoutineExecutor8LA, IEncounterBot
 
     private async Task TeleportToDistortionZone(CancellationToken token)
     {
+        await TeleportToDistortionZone(token, coordinates).ConfigureAwait(false);
+    }
+
+    private async Task TeleportToDistortionZone(CancellationToken token, (string, string, string) coords)
+    {
         var ofs = await NewParsePointer(PlayerCoordPtrLA, token).ConfigureAwait(false);
-        uint coordX1 = uint.Parse(coordinates.Item1, NumberStyles.AllowHexSpecifier);
+        uint coordX1 = uint.Parse(coords.Item1, NumberStyles.AllowHexSpecifier);
         byte[] X1 = BitConverter.GetBytes(coordX1);
-        uint coordY1 = uint.Parse(coordinates.Item2, NumberStyles.AllowHexSpecifier);
+        uint coordY1 = uint.Parse(coords.Item2, NumberStyles.AllowHexSpecifier);
         byte[] Y1 = BitConverter.GetBytes(coordY1);
-        uint coordZ1 = uint.Parse(coordinates.Item3, NumberStyles.AllowHexSpecifier);
+        uint coordZ1 = uint.Parse(coords.Item3, NumberStyles.AllowHexSpecifier);
         byte[] Z1 = BitConverter.GetBytes(coordZ1);
 
         X1 = X1.Concat(Y1).Concat(Z1).ToArray();
@@ -1722,7 +1740,9 @@ public sealed class ArceusBot : PokeRoutineExecutor8LA, IEncounterBot
         var gt = PersonalTable.LA.GetFormEntry(pk.Species, pk.Form).Gender;
         var (perfect, complete) = CheckForPerfectComplete(HasCharm, dex, pk.Species);
         var rolls = 1 + (complete ? 1 : 0) + (perfect ? 2 : 0) + (HasCharm ? 3 : 0) + (int)(SpawnType.Regular - 7);
-
+        var previewRng = new Xoroshiro128Plus(fixedseed);
+        previewRng.NextInt();            
+        var sidtid = (uint)previewRng.NextInt();
         var gen = GenerateFromSeed(fixedseed, rolls, givs, gt);
 
         string location = GetDistortionSpeciesLocation(id);
@@ -1740,10 +1760,11 @@ public sealed class ArceusBot : PokeRoutineExecutor8LA, IEncounterBot
         pk.IVs = pkIVList;
         pk.Nature = (Nature)gen.Item8;
         pk.Gender = (byte)gen.gender;
+        pk.TID16 = (ushort)(sidtid & 0xFFFF);
+        pk.SID16 = (ushort)(sidtid >> 16);
 
         if (gen.shiny)
         {
-            CommonEdits.SetShiny(pk, Shiny.Always);
             FillDistortionCoords(id);
         }
 

@@ -290,6 +290,8 @@ public sealed class ArceusBot : PokeRoutineExecutor8LA, IEncounterBot
                 };
                 var warmupSpawnerOff = await SwitchConnection.PointerAll(warmupOfs, token).ConfigureAwait(false);
                 _ = await SwitchConnection.ReadBytesAbsoluteAsync(warmupSpawnerOff, 8, token).ConfigureAwait(false);
+                var warmupSpawnerOff2 = await SwitchConnection.PointerAll(warmupOfs, token).ConfigureAwait(false);
+                _ = await SwitchConnection.ReadBytesAbsoluteAsync(warmupSpawnerOff2, 8, token).ConfigureAwait(false);
             }
             for (int i = 0; i < count; i++)
             {
